@@ -63,6 +63,7 @@ import {
   registerServerStatusRoutes,
 } from './lib/opencode/core-routes.js';
 import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js';
+import { registerAiCanvasRoutes, stopAiCanvasService } from './lib/aicanvas/routes.js';
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
 import { createSettingsRuntime } from './lib/opencode/settings-runtime.js';
@@ -97,6 +98,7 @@ const uiNotificationWsClients = new Set();
 const uiOpenChamberEventClients = new Set();
 const HEALTH_CHECK_INTERVAL = 15000;
 const SHUTDOWN_TIMEOUT = 10000;
+const AICANVAS_STARTUP_CLEANUP_TIMEOUT_MS = 7000;
 const MODELS_DEV_API_URL = 'https://models.dev/api.json';
 const MODELS_METADATA_CACHE_TTL = 5 * 60 * 1000;
 const CLIENT_RELOAD_DELAY_MS = 800;
@@ -990,6 +992,12 @@ const fetchAgentsSnapshot = (...args) => serverUtilsRuntime.fetchAgentsSnapshot(
 const fetchProvidersSnapshot = (...args) => serverUtilsRuntime.fetchProvidersSnapshot(...args);
 const fetchModelsSnapshot = (...args) => serverUtilsRuntime.fetchModelsSnapshot(...args);
 const setupProxy = (...args) => serverUtilsRuntime.setupProxy(...args);
+const stopAiCanvasRuntime = () => stopAiCanvasService({
+  spawnSync,
+  net,
+  host: process.env.AICANVASPRO_HOST,
+  port: process.env.AICANVASPRO_PORT,
+});
 const gracefulShutdownRuntime = createGracefulShutdownRuntime({
   process,
   shutdownTimeoutMs: SHUTDOWN_TIMEOUT,
@@ -1011,6 +1019,7 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
   setMessageStreamRuntime: (value) => {
     messageStreamRuntime = value;
   },
+  stopAiCanvasRuntime,
   shouldSkipOpenCodeStop: () => ENV_SKIP_OPENCODE_START || isExternalOpenCode,
   getOpenCodePort: () => openCodePort,
   getOpenCodeProcess: () => openCodeProcess,
@@ -1033,6 +1042,32 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
 });
 
 const gracefulShutdown = (...args) => gracefulShutdownRuntime.gracefulShutdown(...args);
+
+const stopStaleAiCanvasRuntimeAtStartup = async () => {
+  const cleanup = stopAiCanvasRuntime();
+  let timeout = null;
+  try {
+    const result = await Promise.race([
+      cleanup,
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve({
+          ok: false,
+          status: 'startup-cleanup-timeout',
+          error: 'Timed out stopping stale AI-CanvasPro service during startup',
+        }), AICANVAS_STARTUP_CLEANUP_TIMEOUT_MS);
+      }),
+    ]);
+    if (result?.ok && result.status === 'stopped') {
+      console.log(`Stopped stale AI-CanvasPro service at ${result.url}`);
+    } else if (result && !result.ok && result.status !== 'not-aicanvas') {
+      console.warn(`Could not stop stale AI-CanvasPro service during startup: ${result.error || result.status || 'unknown error'}`);
+    }
+  } catch (error) {
+    console.warn('Error stopping stale AI-CanvasPro service during startup:', error);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+};
 
 async function main(options = {}) {
   const port = Number.isFinite(options.port) && options.port >= 0 ? Math.trunc(options.port) : DEFAULT_PORT;
@@ -1089,6 +1124,7 @@ async function main(options = {}) {
   }
 
   console.log(`Starting OpenChamber on port ${port === 0 ? 'auto' : port}`);
+  await stopStaleAiCanvasRuntimeAtStartup();
 
   const sayTTSCapability = await detectSayTtsCapability(process);
 
@@ -1202,6 +1238,16 @@ async function main(options = {}) {
     setAutoAcceptSession,
   });
   uiAuthController = bootstrapResult.uiAuthController;
+
+  registerAiCanvasRoutes(app, {
+    fs,
+    path,
+    spawn,
+    spawnSync,
+    net,
+    os,
+    processLike: process,
+  });
 
   const tunnelRuntimeContext = tunnelWiringRuntime.initialize(app, port);
   const { tunnelService, startTunnelWithNormalizedRequest } = tunnelRuntimeContext;

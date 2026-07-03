@@ -69,6 +69,19 @@ describe('createDirectoryQueryCanonicalizer', () => {
 
     await expect(canonicalize('/session?foo=1')).resolves.toBe('/session?foo=1');
   });
+
+  it('rewrites Windows root directory query params to the user home directory', async () => {
+    const canonicalize = createDirectoryQueryCanonicalizer({
+      platform: 'win32',
+      homeDir: 'C:\\Users\\alice',
+      realpath: async () => {
+        throw new Error('should not realpath Windows root');
+      },
+    });
+
+    await expect(canonicalize('/session?directory=%2F'))
+      .resolves.toBe('/session?directory=C%3A%5CUsers%5Calice');
+  });
 });
 
 describe('normalizeForwardedDirectoryHeaders', () => {

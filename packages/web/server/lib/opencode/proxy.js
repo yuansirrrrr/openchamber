@@ -1,3 +1,5 @@
+import os from 'node:os';
+
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
 import {
@@ -7,7 +9,12 @@ import {
 } from '../../proxy-headers.js';
 import { createRealpathCache } from '../path-realpath-cache.js';
 
-export const createDirectoryQueryCanonicalizer = ({ realpath, ...cacheOptions } = {}) => {
+export const createDirectoryQueryCanonicalizer = ({
+  realpath,
+  platform = process.platform,
+  homeDir = os.homedir(),
+  ...cacheOptions
+} = {}) => {
   const realpathCache = createRealpathCache({ fallbackOnError: true, realpath, ...cacheOptions });
 
   return async (requestUrl) => {
@@ -19,6 +26,11 @@ export const createDirectoryQueryCanonicalizer = ({ realpath, ...cacheOptions } 
     const directory = url.searchParams.get('directory');
     if (!directory) {
       return requestUrl;
+    }
+
+    if (platform === 'win32' && directory === '/' && homeDir) {
+      url.searchParams.set('directory', homeDir);
+      return `${url.pathname}${url.search}`;
     }
 
     const canonicalDirectory = await realpathCache.resolve(directory);

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const useDetachedChildren = process.platform === 'darwin';
 const webRoot = path.join(repoRoot, 'packages/web');
+const bunCommand = process.env.npm_execpath || 'bun';
 
 function run(label, command, args, env = {}, options = {}) {
   return spawn(command, args, {
@@ -82,8 +84,39 @@ async function stopChildTree(child) {
 }
 
 const uiPort = process.env.OPENCHAMBER_HMR_UI_PORT || '5180';
-const backendPort = process.env.OPENCHAMBER_HMR_API_PORT || '3902';
+const requestedBackendPort = process.env.OPENCHAMBER_HMR_API_PORT || '3902';
+let backendPort = requestedBackendPort;
 const hmrHost = process.env.OPENCHAMBER_HMR_HOST || '127.0.0.1';
+
+function canListen(port, host) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(Number(port), host);
+  });
+}
+
+async function resolveBackendPort(port, host) {
+  if (await canListen(port, host)) return port;
+
+  if (process.env.OPENCHAMBER_HMR_API_PORT) {
+    return port;
+  }
+
+  const start = Number.parseInt(String(port), 10);
+  for (let offset = 1; offset <= 20; offset += 1) {
+    const candidate = String(start + offset);
+    if (await canListen(candidate, host)) {
+      console.warn(`[dev:web:hmr] API port ${port} is in use; using ${candidate}`);
+      return candidate;
+    }
+  }
+
+  return port;
+}
 
 function getLanAddresses() {
   const addresses = [];
@@ -112,12 +145,30 @@ function clearViteCache() {
 
 clearViteCache();
 
-const api = run('api', 'bun', ['run', '--cwd', 'packages/web', 'dev:server:watch'], {
-  OPENCHAMBER_PORT: backendPort,
-});
+backendPort = await resolveBackendPort(requestedBackendPort, hmrHost);
+
+const api = run(
+  'api',
+  bunCommand,
+  [
+    'x',
+    'nodemon',
+    '--watch',
+    'server',
+    '--ext',
+    'js',
+    '--exec',
+    'node ../../scripts/run-web-server.mjs',
+  ],
+  {
+    OPENCHAMBER_PORT: backendPort,
+    OPENCHAMBER_BUN_COMMAND: bunCommand,
+  },
+  { cwd: webRoot },
+);
 const vite = run(
   'vite',
-  'bun',
+  bunCommand,
   ['x', 'vite', '--force', '--host', hmrHost, '--port', uiPort, '--strictPort'],
   {
     OPENCHAMBER_PORT: backendPort,

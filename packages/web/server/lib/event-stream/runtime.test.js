@@ -292,10 +292,11 @@ describe('message stream websocket runtime', () => {
     await runtime.close();
   });
 
-  it('closes the websocket and triggers health check on initial upstream unavailable response', async () => {
+  it('keeps the websocket open and triggers health check on recoverable initial upstream unavailable response', async () => {
     const server = new EventEmitter();
     const wsClients = new Set();
     let triggerHealthCheckCalls = 0;
+    let fetchCalls = 0;
 
     const runtime = createMessageStreamWsRuntime({
       server,
@@ -312,41 +313,38 @@ describe('message stream websocket runtime', () => {
         triggerHealthCheckCalls += 1;
       },
       upstreamReconnectDelayMs: 0,
-      fetchImpl: async () => ({
-        ok: false,
-        status: 503,
-        body: null,
-      }),
+      fetchImpl: async (url, { signal } = {}) => {
+        fetchCalls += 1;
+        if (fetchCalls === 1) {
+          return {
+            ok: false,
+            status: 503,
+            body: null,
+          };
+        }
+        return createSseResponse({ signal, holdOpen: true });
+      },
     });
 
     const socket = new FakeSocket();
     runtime.wsServer.emit('connection', socket, { url: '/api/global/event/ws' });
 
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(socket.sent).toEqual([
-      {
-        type: 'error',
-        message: 'OpenCode event stream unavailable (503)',
-      },
-    ]);
-    expect(socket.closeCalls).toEqual([
-      {
-        code: 1011,
-        reason: 'OpenCode event stream unavailable',
-      },
-    ]);
+    expect(socket.sent).toContainEqual({ type: 'ready', scope: 'global' });
+    expect(socket.closeCalls).toEqual([]);
     expect(triggerHealthCheckCalls).toBe(1);
-    expect(wsClients.size).toBe(0);
+    expect(wsClients.size).toBe(1);
 
     await runtime.close();
   });
 
-  it('closes the websocket without health check when OpenCode URL cannot be built', async () => {
+  it('keeps the websocket open when OpenCode URL cannot be built temporarily', async () => {
     const server = new EventEmitter();
     const wsClients = new Set();
     let triggerHealthCheckCalls = 0;
     let fetchCalls = 0;
+    let buildCalls = 0;
 
     const runtime = createMessageStreamWsRuntime({
       server,
@@ -355,8 +353,12 @@ describe('message stream websocket runtime', () => {
       rejectWebSocketUpgrade() {
         throw new Error('upgrade should not be used in this test');
       },
-      buildOpenCodeUrl() {
-        throw new Error('missing OpenCode port');
+      buildOpenCodeUrl(path) {
+        buildCalls += 1;
+        if (buildCalls === 1) {
+          throw new Error('missing OpenCode port');
+        }
+        return `http://127.0.0.1:4096${path}`;
       },
       getOpenCodeAuthHeaders: () => ({}),
       processForwardedEventPayload() {},
@@ -365,31 +367,21 @@ describe('message stream websocket runtime', () => {
         triggerHealthCheckCalls += 1;
       },
       upstreamReconnectDelayMs: 0,
-      fetchImpl: async () => {
+      fetchImpl: async (url, { signal } = {}) => {
         fetchCalls += 1;
-        throw new Error('fetch should not be called');
+        return createSseResponse({ signal, holdOpen: true });
       },
     });
 
     const socket = new FakeSocket();
     runtime.wsServer.emit('connection', socket, { url: '/api/global/event/ws' });
 
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(socket.sent).toEqual([
-      {
-        type: 'error',
-        message: 'OpenCode service unavailable',
-      },
-    ]);
-    expect(socket.closeCalls).toEqual([
-      {
-        code: 1011,
-        reason: 'OpenCode service unavailable',
-      },
-    ]);
-    expect(fetchCalls).toBe(0);
-    expect(triggerHealthCheckCalls).toBe(0);
+    expect(socket.sent).toContainEqual({ type: 'ready', scope: 'global' });
+    expect(socket.closeCalls).toEqual([]);
+    expect(fetchCalls).toBe(1);
+    expect(triggerHealthCheckCalls).toBe(1);
 
     await runtime.close();
   });

@@ -180,6 +180,8 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             ? [{ id: 'openchamber:explore', name: 'explore', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.exploreDescription'), isOpenChamber: true }]
             : []
           ),
+          { id: 'openchamber:aicanvas', name: 'aicanvas', source: 'openchamber' as const, description: 'Open AI-CanvasPro in the built-in browser', isOpenChamber: true },
+          { id: 'openchamber:aicanvas-stop', name: 'aicanvas-stop', source: 'openchamber' as const, description: 'Stop the local AI-CanvasPro service', isOpenChamber: true },
         ];
         const allCommands = [...builtInCommands, ...customCommands, ...skillCommands];
 
@@ -249,6 +251,8 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             ? [{ id: 'openchamber:explore', name: 'explore', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.exploreDescription'), isOpenChamber: true }]
             : []
           ),
+          { id: 'openchamber:aicanvas', name: 'aicanvas', source: 'openchamber' as const, description: 'Open AI-CanvasPro in the built-in browser', isOpenChamber: true },
+          { id: 'openchamber:aicanvas-stop', name: 'aicanvas-stop', source: 'openchamber' as const, description: 'Stop the local AI-CanvasPro service', isOpenChamber: true },
         ];
 
         const filtered = (searchQuery

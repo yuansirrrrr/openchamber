@@ -1,0 +1,75 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, expect, test } from 'vitest';
+
+import { isInactiveBridgeHealth, resolveAiCanvasMediaTools, resolveAiCanvasRuntime } from './routes.js';
+
+describe('resolveAiCanvasRuntime', () => {
+  test('finds a versioned runtime next to a standalone configured plugin file', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-aicanvas-'));
+    const configDir = path.join(root, '.config', 'opencode');
+    const pluginsDir = path.join(configDir, 'plugins');
+    const runtimeRoot = path.join(pluginsDir, 'AI-CanvasPro-0.5.0', 'runtime');
+
+    fs.mkdirSync(runtimeRoot, { recursive: true });
+    fs.writeFileSync(path.join(runtimeRoot, 'server.py'), '', 'utf8');
+    fs.writeFileSync(path.join(pluginsDir, 'ai-canvaspro.js'), 'export default {}', 'utf8');
+    fs.writeFileSync(
+      path.join(configDir, 'opencode.json'),
+      JSON.stringify({ plugin: ['./plugins/ai-canvaspro.js'] }),
+      'utf8',
+    );
+
+    const fakeOs = {
+      homedir: () => root,
+    };
+
+    const result = resolveAiCanvasRuntime(fs, path, fakeOs, {
+      env: {
+        USERPROFILE: root,
+      },
+    });
+
+    expect(result).toEqual({
+      runtimeRoot,
+      source: 'opencode-config',
+      pluginPath: path.join(pluginsDir, 'ai-canvaspro.js'),
+    });
+  });
+});
+
+describe('isInactiveBridgeHealth', () => {
+  test('keeps a healthy bridge reusable while the browser runtime reconnects', () => {
+    expect(isInactiveBridgeHealth({ ok: true, runtimeRegistered: false })).toBe(false);
+    expect(isInactiveBridgeHealth({ ok: true })).toBe(false);
+    expect(isInactiveBridgeHealth({ ok: true, runtimeRegistered: true })).toBe(false);
+    expect(isInactiveBridgeHealth({ ok: false, runtimeRegistered: true })).toBe(true);
+  });
+});
+
+describe('resolveAiCanvasMediaTools', () => {
+  test('uses ffmpeg and ffprobe from the process PATH', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-aicanvas-tools-'));
+    const binDir = path.join(root, 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+
+    const ffmpegName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+    const ffprobeName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
+    const ffmpegPath = path.join(binDir, ffmpegName);
+    const ffprobePath = path.join(binDir, ffprobeName);
+    fs.writeFileSync(ffmpegPath, '', 'utf8');
+    fs.writeFileSync(ffprobePath, '', 'utf8');
+
+    const result = resolveAiCanvasMediaTools(fs, path, () => ({ status: 1, stdout: '' }), {
+      env: {
+        PATH: binDir,
+      },
+    });
+
+    expect(result).toEqual({
+      ffmpeg: ffmpegPath,
+      ffprobe: ffprobePath,
+    });
+  });
+});

@@ -57,6 +57,7 @@ import { Icon } from "@/components/icon/Icon";
 import { DraftPresetChips } from './DraftPresetChips';
 import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
 import { opencodeClient } from '@/lib/opencode/client';
+import { runtimeFetch } from '@/lib/runtime-fetch';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
@@ -1184,7 +1185,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const availableSkills = useSkillsStore((s) => s.skills);
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
-            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'workspace-review', 'plan-feature', 'catch-up', 'debug', 'weigh', 'explore',
+            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'workspace-review', 'plan-feature', 'catch-up', 'debug', 'weigh', 'explore', 'aicanvas', 'aicanvas-stop',
         ]);
         if (!isMobile && !isVSCodeRuntime()) names.add('handoff-review');
         for (const command of availableCommands) names.add(command.name.toLowerCase());
@@ -1972,6 +1973,58 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
             else if (commandName === 'timeline' && currentSessionId) {
                 setTimelineDialogOpen(true);
+                return;
+            }
+            else if (commandName === 'aicanvas') {
+                try {
+                    const response = await runtimeFetch('/api/aicanvas/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                    const payload = await response.json().catch(() => null) as { ok?: boolean; url?: string; error?: string; status?: string; runtimeRoot?: string } | null;
+                    if (!response.ok || !payload?.url) {
+                        throw new Error(payload?.error || `Failed to start AI-CanvasPro (${response.status})`);
+                    }
+                    const directoryCandidates = [
+                        currentSessionId
+                            ? useSessionUIStore.getState().getDirectoryForSession(currentSessionId)
+                            : '',
+                        currentDirectory,
+                        opencodeClient.getDirectory(),
+                        payload.runtimeRoot,
+                    ];
+                    const directory = directoryCandidates
+                        .map((candidate) => (candidate || '').trim())
+                        .find((candidate) => candidate && candidate !== '/') || '';
+                    useUIStore.getState().openContextBrowser(directory, payload.url);
+                    toast.success(payload.status === 'already-running'
+                        ? `AI-CanvasPro is already running: ${payload.url}`
+                        : `AI-CanvasPro started: ${payload.url}`);
+                    scrollToBottom?.();
+                } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Failed to open AI-CanvasPro');
+                }
+                return;
+            }
+            else if (commandName === 'aicanvas-stop') {
+                try {
+                    const response = await runtimeFetch('/api/aicanvas/stop', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                    const payload = await response.json().catch(() => null) as { ok?: boolean; error?: string; status?: string; pid?: string | number } | null;
+                    if (!response.ok || !payload?.ok) {
+                        throw new Error(payload?.error || `Failed to stop AI-CanvasPro (${response.status})`);
+                    }
+                    toast.success(payload.status === 'not-running'
+                        ? 'AI-CanvasPro is not running'
+                        : 'AI-CanvasPro stopped');
+                    scrollToBottom?.();
+                } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Failed to stop AI-CanvasPro');
+                }
                 return;
             }
             else if (commandName === 'compact' && currentSessionId) {

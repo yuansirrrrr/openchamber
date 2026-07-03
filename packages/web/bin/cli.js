@@ -37,6 +37,7 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_PORT = 3000;
 const DEFAULT_TAIL_LINES = 200;
 const DAEMON_READY_TIMEOUT_MS = 30000;
+const GRACEFUL_SERVER_SHUTDOWN_WAIT_MS = 20000;
 const LOG_ROTATE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_ROTATE_KEEP = 5;
 const STARTUP_SERVICE_ID = 'dev.openchamber.web';
@@ -4146,7 +4147,7 @@ const commands = {
 
         if (Number.isFinite(explicitInstance.pid) && isProcessRunning(explicitInstance.pid)) {
           await stopInstanceProcess(explicitInstance.pid, {
-            shutdownWaitMs: requested ? 5000 : 0,
+            shutdownWaitMs: requested ? GRACEFUL_SERVER_SHUTDOWN_WAIT_MS : 0,
             gracefulTimeoutMs: 2500,
             forceTimeoutMs: 3000,
           }).catch(() => false);
@@ -4266,7 +4267,7 @@ const commands = {
       try {
         const requested = await requestServerShutdown(instance.port, instance.host || options.host);
         const stopped = await stopInstanceProcess(instance.pid, {
-          shutdownWaitMs: requested ? 5000 : 0,
+          shutdownWaitMs: requested ? GRACEFUL_SERVER_SHUTDOWN_WAIT_MS : 0,
           gracefulTimeoutMs: 2500,
           forceTimeoutMs: 3000,
         });
@@ -5869,7 +5870,7 @@ const commands = {
         try {
           const requested = await requestServerShutdown(instance.port, instance.host);
           await stopInstanceProcess(instance.pid, {
-            shutdownWaitMs: requested ? 5000 : 0,
+            shutdownWaitMs: requested ? GRACEFUL_SERVER_SHUTDOWN_WAIT_MS : 0,
             gracefulTimeoutMs: 2500,
             forceTimeoutMs: 3000,
           });

@@ -13,6 +13,23 @@ function shouldTriggerUpstreamHealthCheck(upstream) {
   return upstream.status >= 500;
 }
 
+function isRecoverableInitialError(error, buildUrlFailed) {
+  if (buildUrlFailed) {
+    return true;
+  }
+
+  if (error?.type === 'stream_error') {
+    return true;
+  }
+
+  if (error?.type !== 'upstream_unavailable') {
+    return false;
+  }
+
+  const status = Number(error.status);
+  return status === 0 || status === 408 || status === 429 || status >= 500;
+}
+
 export function acceptDirectoryMessageStreamWsConnection({
   socket,
   requestedLastEventId,
@@ -140,6 +157,17 @@ export function acceptDirectoryMessageStreamWsConnection({
           }
 
           if (!streamReady) {
+            if (isRecoverableInitialError(error, buildUrlFailed)) {
+              if (error?.type === 'upstream_unavailable') {
+                if (shouldTriggerUpstreamHealthCheck(error.response)) {
+                  triggerHealthCheck?.();
+                }
+              } else {
+                triggerHealthCheck?.();
+              }
+              return;
+            }
+
             if (error?.type === 'upstream_unavailable') {
               closeWithInitialError({
                 message: `OpenCode event stream unavailable (${error.status})`,

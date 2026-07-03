@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import type { Socket } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
@@ -11,6 +12,28 @@ const packageJson = JSON.parse(readFileSync(path.resolve(__dirname, 'package.jso
 const pwaDevEnabled = process.env.OPENCHAMBER_DISABLE_PWA_DEV !== '1';
 const reactScanToggle = (process.env.VITE_ENABLE_REACT_SCAN ?? '').toLowerCase();
 const enableReactScan = reactScanToggle === '1' || reactScanToggle === 'true' || reactScanToggle === 'on' || reactScanToggle === 'yes';
+const quietWsProxyErrorCodes = new Set(['ECONNABORTED', 'ECONNRESET', 'EPIPE', 'ERR_STREAM_DESTROYED']);
+
+const isQuietWsProxyError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === 'string' && quietWsProxyErrorCodes.has(code)) return true;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' && /\b(?:ECONNABORTED|ECONNRESET|EPIPE|ERR_STREAM_DESTROYED)\b/.test(message);
+};
+
+const quietExpectedWsProxySocketErrors = (socket: Socket): void => {
+  const originalOn = socket.on.bind(socket);
+  socket.on = ((eventName: string | symbol, listener: (...args: unknown[]) => void) => {
+    if (eventName !== 'error') {
+      return originalOn(eventName, listener);
+    }
+    return originalOn(eventName, (...args: unknown[]) => {
+      if (isQuietWsProxyError(args[0])) return;
+      listener(...args);
+    });
+  }) as Socket['on'];
+};
 
 export default defineConfig({
   root: path.resolve(__dirname, '.'),
@@ -93,6 +116,11 @@ export default defineConfig({
         target: `http://127.0.0.1:${process.env.OPENCHAMBER_PORT || 3001}`,
         changeOrigin: true,
         ws: true,
+        configure(proxy) {
+          proxy.on('proxyReqWs', (_proxyReq, _req, socket) => {
+            quietExpectedWsProxySocketErrors(socket);
+          });
+        },
       },
     },
   },

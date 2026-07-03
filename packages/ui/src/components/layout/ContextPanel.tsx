@@ -1219,6 +1219,22 @@ const isElectronBrowserRuntime = (): boolean => {
   return typeof window !== 'undefined' && Boolean(window.__OPENCHAMBER_ELECTRON__);
 };
 
+const isLoopbackBrowserHost = (host: string): boolean => {
+  const normalized = host.replace(/^\[|\]$/g, '').toLowerCase();
+  return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1';
+};
+
+const isAiCanvasBrowserUrl = (rawUrl: string | null | undefined): boolean => {
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+    return parsed.protocol === 'http:' && isLoopbackBrowserHost(parsed.hostname) && port === '8777';
+  } catch {
+    return false;
+  }
+};
+
 const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, directory, tabID }) => {
   const { t } = useI18n();
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
@@ -1235,6 +1251,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
   const [hoverTarget, setHoverTarget] = React.useState<PreviewElementMetadata | null>(null);
   const [proxyState, setProxyState] = React.useState<PreviewProxyState>({ status: 'idle' });
   const [urlAuthReadyKey, setUrlAuthReadyKey] = React.useState('');
+  const shouldBypassProxy = isAiCanvasBrowserUrl(currentUrl);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const newSessionDraftOpen = useSessionUIStore((state) => state.newSessionDraft?.open);
   const addInlineCommentDraft = useInlineCommentDraftStore((state) => state.addDraft);
@@ -1301,6 +1318,10 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
       setProxyState({ status: 'idle' });
       return;
     }
+    if (shouldBypassProxy) {
+      setProxyState({ status: 'idle' });
+      return;
+    }
 
     const proxyTargetKey = getBrowserProxyTargetKey(currentUrl);
     const cached = getCachedProxyTarget(proxyTargetKey);
@@ -1362,7 +1383,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
     return () => {
       cancelled = true;
     };
-  }, [currentUrl, t]);
+  }, [currentUrl, shouldBypassProxy, t]);
 
   const proxyUrlAuthKey = currentUrl && proxyState.status === 'ready'
     ? `${proxyState.proxyBasePath}|${proxyState.previewToken || ''}|${reloadNonce}`
@@ -1403,7 +1424,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
     }
   }, [currentUrl, proxyState, proxyUrlAuthKey, reloadNonce, urlAuthReadyKey]);
 
-  const iframeSrc = proxySrc || (proxyState.status === 'error' ? currentUrl : '');
+  const iframeSrc = shouldBypassProxy ? currentUrl : (proxySrc || (proxyState.status === 'error' ? currentUrl : ''));
 
   const getCurrentUrlFromFrameUrl = React.useCallback((frameUrl: string): string => {
     if (!frameUrl || !currentUrl || proxyState.status !== 'ready') return '';
@@ -2503,17 +2524,20 @@ export const ContextPanel: React.FC = () => {
             />
           );
         })}
-        {browserTabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={cn(
-              'absolute inset-0',
-              activeTab?.id !== tab.id && 'hidden'
-            )}
-          >
-            <BrowserPane initialUrl={tab.targetPath ?? ''} directory={directoryKey} tabID={tab.id} />
-          </div>
-        ))}
+        {browserTabs.map((tab) => {
+          const Pane = isAiCanvasBrowserUrl(tab.targetPath) ? IframeBrowserPane : BrowserPane;
+          return (
+            <div
+              key={tab.id}
+              className={cn(
+                'absolute inset-0',
+                activeTab?.id !== tab.id && 'hidden'
+              )}
+            >
+              <Pane initialUrl={tab.targetPath ?? ''} directory={directoryKey} tabID={tab.id} />
+            </div>
+          );
+        })}
         {diffTabs.map((tab) => (
           <div
             key={tab.id}

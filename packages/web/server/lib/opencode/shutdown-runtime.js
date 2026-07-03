@@ -15,6 +15,7 @@ export const createGracefulShutdownRuntime = (dependencies) => {
     setTerminalRuntime,
     getMessageStreamRuntime,
     setMessageStreamRuntime,
+    stopAiCanvasRuntime,
     shouldSkipOpenCodeStop,
     getOpenCodePort,
     getOpenCodeProcess,
@@ -65,6 +66,21 @@ export const createGracefulShutdownRuntime = (dependencies) => {
       } catch {
       } finally {
         setMessageStreamRuntime(null);
+      }
+    }
+
+    if (typeof stopAiCanvasRuntime === 'function') {
+      try {
+        const result = await stopAiCanvasRuntime();
+        if (result?.ok && result.status === 'stopped') {
+          console.log(`Stopped AI-CanvasPro service at ${result.url}`);
+        } else if (result?.ok && result.status === 'not-running') {
+          console.log('AI-CanvasPro service is not running');
+        } else if (result && !result.ok) {
+          console.warn(`Skipping AI-CanvasPro shutdown: ${result.error || result.status || 'unknown error'}`);
+        }
+      } catch (error) {
+        console.warn('Error stopping AI-CanvasPro service:', error);
       }
     }
 

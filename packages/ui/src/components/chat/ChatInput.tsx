@@ -1185,7 +1185,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const availableSkills = useSkillsStore((s) => s.skills);
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
-            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'workspace-review', 'plan-feature', 'catch-up', 'debug', 'weigh', 'explore', 'aicanvas', 'aicanvas-stop',
+            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'summary', 'workspace-review', 'plan-feature', 'catch-up', 'debug', 'weigh', 'explore', 'aicanvas', 'aicanvas-stop', 'canvas-stop',
         ]);
         if (!isMobile && !isVSCodeRuntime()) names.add('handoff-review');
         for (const command of availableCommands) names.add(command.name.toLowerCase());
@@ -2007,7 +2007,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 }
                 return;
             }
-            else if (commandName === 'aicanvas-stop') {
+            else if (commandName === 'aicanvas-stop' || commandName === 'canvas-stop') {
                 try {
                     const response = await runtimeFetch('/api/aicanvas/stop', {
                         method: 'POST',

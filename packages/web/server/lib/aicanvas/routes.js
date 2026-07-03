@@ -249,6 +249,37 @@ const resolveCanvasAppUrl = async (url) => {
   return url;
 };
 
+const normalizePublicCanvasUrl = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    if (!url.pathname.endsWith('/')) {
+      url.pathname = `${url.pathname}/`;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+export const resolveAiCanvasBrowserUrl = async (serviceUrl, processLike, body = {}) => {
+  const publicUrl = normalizePublicCanvasUrl(body.publicUrl ?? processLike.env?.AICANVASPRO_PUBLIC_URL);
+  const appUrl = await resolveCanvasAppUrl(serviceUrl);
+  if (!publicUrl) return appUrl;
+
+  try {
+    const serviceBase = new URL(serviceUrl);
+    const app = new URL(appUrl);
+    const suffix = app.origin === serviceBase.origin
+      ? `${app.pathname}${app.search}${app.hash}`.replace(/^\//, '')
+      : '';
+    return new URL(suffix, publicUrl).toString();
+  } catch {
+    return publicUrl;
+  }
+};
+
 const getBridgeHealth = async (url) => {
   try {
     const result = await fetchJson(`${url}api/v2/opencode-canvas/health`);
@@ -568,6 +599,7 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
     const runtimeRoot = runtimeResolution.runtimeRoot;
     const serverPath = path.join(runtimeRoot, 'server.py');
     const url = `http://${host}:${port}/`;
+    const resolveBrowserUrl = () => resolveAiCanvasBrowserUrl(url, processLike, req.body || {});
 
     try {
       if (!fs.existsSync(serverPath)) {
@@ -583,7 +615,7 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
       if (await isPortOpen(net, port, host)) {
         const bridgeHealth = await getBridgeHealth(url);
         if (bridgeHealth) {
-          const appUrl = await resolveCanvasAppUrl(url);
+          const appUrl = await resolveBrowserUrl();
           return res.json({
             ok: true,
             status: 'already-running',
@@ -599,14 +631,14 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
         }
 
         if (await isAiCanvasServer(url)) {
-          const pid = findWindowsPidOnPort(spawnSync, port);
-          if (pid && await stopWindowsPid(spawnSync, pid, net, port, host)) {
+          const stopResult = await stopAiCanvasService({ spawnSync, net, host, port });
+          if (stopResult.ok) {
             console.warn(`[aicanvas] Restarted stale AI-CanvasPro server on ${host}:${port}`);
           } else {
             return res.status(409).json({
               ok: false,
               staleServer: true,
-              error: `AI-CanvasPro is already running at ${url}, but it does not expose the OpenCode bridge. Stop that old process and run /aicanvas again.`,
+              error: `AI-CanvasPro is already running at ${url}, but it does not expose the OpenCode bridge. Stop that old process and run /aicanvas again. ${stopResult.error || ''}`.trim(),
               runtimeRoot,
               pluginPath: runtimeResolution.pluginPath,
               source: runtimeResolution.source,
@@ -666,7 +698,7 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
       return res.json({
         ok: true,
         status: 'started',
-        url: await resolveCanvasAppUrl(url),
+        url: await resolveBrowserUrl(),
         serviceUrl: url,
         runtimeRoot,
         pluginPath: runtimeResolution.pluginPath,

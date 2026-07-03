@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { isInactiveBridgeHealth, resolveAiCanvasMediaTools, resolveAiCanvasRuntime } from './routes.js';
+import { isInactiveBridgeHealth, resolveAiCanvasBrowserUrl, resolveAiCanvasMediaTools, resolveAiCanvasRuntime } from './routes.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('resolveAiCanvasRuntime', () => {
   test('finds a versioned runtime next to a standalone configured plugin file', () => {
@@ -45,6 +49,27 @@ describe('isInactiveBridgeHealth', () => {
     expect(isInactiveBridgeHealth({ ok: true })).toBe(false);
     expect(isInactiveBridgeHealth({ ok: true, runtimeRegistered: true })).toBe(false);
     expect(isInactiveBridgeHealth({ ok: false, runtimeRegistered: true })).toBe(true);
+  });
+});
+
+describe('resolveAiCanvasBrowserUrl', () => {
+  test('maps an internally resolved app path onto the configured public URL', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      return {
+        ok: true,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        text: async () => (url.endsWith('/runtime/')
+          ? '<html><body>AI-CanvasPro</body></html>'
+          : '<html><title>Directory listing for /</title><a href="runtime/">runtime/</a></html>'),
+      };
+    });
+
+    await expect(resolveAiCanvasBrowserUrl('http://127.0.0.1:8777/', {
+      env: {
+        AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com',
+      },
+    })).resolves.toBe('https://canvas.kklay.com/runtime/');
   });
 });
 

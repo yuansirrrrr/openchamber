@@ -3,6 +3,7 @@ const DEFAULT_PORT = 8777;
 const PLUGIN_DIR_NAMES = ['ai-canvaspro', 'ai-canvaspro-plugin'];
 
 const isLoopbackHost = (host) => host === '127.0.0.1' || host === 'localhost' || host === '::1';
+const isAnyAddressHost = (host) => host === '0.0.0.0' || host === '::';
 
 const normalizePort = (value) => {
   const port = Number.parseInt(String(value ?? DEFAULT_PORT), 10);
@@ -11,7 +12,13 @@ const normalizePort = (value) => {
 
 const normalizeHost = (value) => {
   const host = typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_HOST;
-  return isLoopbackHost(host) ? host : DEFAULT_HOST;
+  return isLoopbackHost(host) || isAnyAddressHost(host) ? host : DEFAULT_HOST;
+};
+
+export const resolveAiCanvasConnectHost = (host) => {
+  if (host === '0.0.0.0') return '127.0.0.1';
+  if (host === '::') return '::1';
+  return host;
 };
 
 const getHomeDir = (os, processLike) => {
@@ -452,10 +459,11 @@ const stopPids = async (spawnSync, pids, net, port, host) => {
 
 export const stopAiCanvasService = async ({ spawnSync, net, host, port }) => {
   const normalizedHost = normalizeHost(host);
+  const connectHost = resolveAiCanvasConnectHost(normalizedHost);
   const normalizedPort = normalizePort(port);
-  const url = `http://${normalizedHost}:${normalizedPort}/`;
+  const url = `http://${connectHost}:${normalizedPort}/`;
 
-  if (!(await isPortOpen(net, normalizedPort, normalizedHost))) {
+  if (!(await isPortOpen(net, normalizedPort, connectHost))) {
     return {
       ok: true,
       status: 'not-running',
@@ -482,8 +490,8 @@ export const stopAiCanvasService = async ({ spawnSync, net, host, port }) => {
     };
   }
 
-  const stoppedPids = await stopPids(spawnSync, pids, net, normalizedPort, normalizedHost);
-  if (await isPortOpen(net, normalizedPort, normalizedHost)) {
+  const stoppedPids = await stopPids(spawnSync, pids, net, normalizedPort, connectHost);
+  if (await isPortOpen(net, normalizedPort, connectHost)) {
     return {
       ok: false,
       status: 'stop-failed',
@@ -594,11 +602,12 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
 
   app.post('/api/aicanvas/start', async (req, res) => {
     const host = normalizeHost(req.body?.host ?? processLike.env.AICANVASPRO_HOST);
+    const connectHost = resolveAiCanvasConnectHost(host);
     const port = normalizePort(req.body?.port ?? processLike.env.AICANVASPRO_PORT);
     const runtimeResolution = resolveAiCanvasRuntime(fs, path, os, processLike, req.body || {});
     const runtimeRoot = runtimeResolution.runtimeRoot;
     const serverPath = path.join(runtimeRoot, 'server.py');
-    const url = `http://${host}:${port}/`;
+    const url = `http://${connectHost}:${port}/`;
     const resolveBrowserUrl = () => resolveAiCanvasBrowserUrl(url, processLike, req.body || {});
 
     try {
@@ -612,7 +621,7 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
         });
       }
 
-      if (await isPortOpen(net, port, host)) {
+      if (await isPortOpen(net, port, connectHost)) {
         const bridgeHealth = await getBridgeHealth(url);
         if (bridgeHealth) {
           const appUrl = await resolveBrowserUrl();
@@ -673,7 +682,7 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
       });
       child.unref();
 
-      const ready = await waitForServer(net, port, host);
+      const ready = await waitForServer(net, port, connectHost);
       if (!ready) {
         return res.status(504).json({
           ok: false,
@@ -720,8 +729,9 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
 
   app.post('/api/aicanvas/stop', async (req, res) => {
     const host = normalizeHost(req.body?.host ?? processLike.env.AICANVASPRO_HOST);
+    const connectHost = resolveAiCanvasConnectHost(host);
     const port = normalizePort(req.body?.port ?? processLike.env.AICANVASPRO_PORT);
-    const url = `http://${host}:${port}/`;
+    const url = `http://${connectHost}:${port}/`;
 
     try {
       const result = await stopAiCanvasService({ spawnSync, net, host, port });

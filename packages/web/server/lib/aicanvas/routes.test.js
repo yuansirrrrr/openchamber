@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { isInactiveBridgeHealth, resolveAiCanvasBrowserUrl, resolveAiCanvasMediaTools, resolveAiCanvasRuntime } from './routes.js';
+import { isInactiveBridgeHealth, resolveAiCanvasBrowserUrl, resolveAiCanvasConnectHost, resolveAiCanvasMediaTools, resolveAiCanvasRuntime } from './routes.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -70,6 +70,13 @@ describe('resolveAiCanvasBrowserUrl', () => {
         AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com',
       },
     })).resolves.toBe('https://canvas.kklay.com/runtime/');
+  });
+});
+
+describe('resolveAiCanvasConnectHost', () => {
+  test('uses loopback for server-side checks when Canvas binds all interfaces', () => {
+    expect(resolveAiCanvasConnectHost('0.0.0.0')).toBe('127.0.0.1');
+    expect(resolveAiCanvasConnectHost('127.0.0.1')).toBe('127.0.0.1');
   });
 });
 

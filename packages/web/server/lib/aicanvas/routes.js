@@ -287,6 +287,32 @@ export const resolveAiCanvasBrowserUrl = async (serviceUrl, processLike, body = 
   }
 };
 
+const normalizeOrigin = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    return url.origin;
+  } catch {
+    return '';
+  }
+};
+
+export const resolveAiCanvasAllowedOrigins = (processLike, body = {}) => {
+  const origins = new Set();
+  const existing = processLike.env?.AIC_ALLOWED_ORIGINS;
+  if (typeof existing === 'string') {
+    for (const item of existing.split(',')) {
+      const origin = normalizeOrigin(item);
+      if (origin) origins.add(origin);
+    }
+  }
+
+  const publicOrigin = normalizeOrigin(body.publicUrl ?? processLike.env?.AICANVASPRO_PUBLIC_URL);
+  if (publicOrigin) origins.add(publicOrigin);
+  return [...origins].join(',');
+};
+
 const getBridgeHealth = async (url) => {
   try {
     const result = await fetchJson(`${url}api/v2/opencode-canvas/health`);
@@ -667,6 +693,7 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
 
       const python = resolvePython(fs, path, runtimeRoot);
       const mediaTools = resolveAiCanvasMediaTools(fs, path, spawnSync, processLike);
+      const allowedOrigins = resolveAiCanvasAllowedOrigins(processLike, req.body || {});
       const child = spawn(python, ['server.py', String(port), host], {
         cwd: runtimeRoot,
         detached: true,
@@ -676,6 +703,7 @@ export const registerAiCanvasRoutes = (app, dependencies) => {
           ...processLike.env,
           AICANVAS_PORT: String(port),
           AICANVAS_HOST: host,
+          AIC_ALLOWED_ORIGINS: allowedOrigins || processLike.env.AIC_ALLOWED_ORIGINS,
           AIC_FFMPEG_EXE: mediaTools.ffmpeg,
           AIC_FFPROBE_EXE: mediaTools.ffprobe,
         },

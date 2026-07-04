@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { isInactiveBridgeHealth, resolveAiCanvasBrowserUrl, resolveAiCanvasConnectHost, resolveAiCanvasMediaTools, resolveAiCanvasRuntime } from './routes.js';
+import { isInactiveBridgeHealth, resolveAiCanvasAllowedOrigins, resolveAiCanvasBrowserUrl, resolveAiCanvasConnectHost, resolveAiCanvasMediaTools, resolveAiCanvasRuntime } from './routes.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -77,6 +77,17 @@ describe('resolveAiCanvasConnectHost', () => {
   test('uses loopback for server-side checks when Canvas binds all interfaces', () => {
     expect(resolveAiCanvasConnectHost('0.0.0.0')).toBe('127.0.0.1');
     expect(resolveAiCanvasConnectHost('127.0.0.1')).toBe('127.0.0.1');
+  });
+});
+
+describe('resolveAiCanvasAllowedOrigins', () => {
+  test('adds the public Canvas URL origin for browser runtime registration', () => {
+    expect(resolveAiCanvasAllowedOrigins({
+      env: {
+        AIC_ALLOWED_ORIGINS: 'https://existing.example',
+        AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com/runtime/',
+      },
+    })).toBe('https://existing.example,https://canvas.kklay.com');
   });
 });
 

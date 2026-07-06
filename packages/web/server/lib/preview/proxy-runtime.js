@@ -612,6 +612,19 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
 
       try {
         const parsed = new URL(value, window.location.href);
+        if (TARGET_ORIGIN) {
+          try {
+            const target = new URL(TARGET_ORIGIN);
+            const host = parsed.hostname;
+            const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host === '[::1]';
+            const isTargetOrigin = parsed.origin === target.origin;
+            const isTargetLoopbackPort = isLoopback && parsed.port && parsed.port === target.port;
+            const isCanvasDefaultLoopback = isLoopback && parsed.port === '8777';
+            if ((isTargetOrigin || isTargetLoopbackPort || isCanvasDefaultLoopback) && shouldProxyPath(parsed.pathname)) {
+              return withProxyAuth(proxyBase + parsed.pathname + parsed.search + parsed.hash);
+            }
+          } catch {}
+        }
         if (parsed.origin === window.location.origin && shouldProxyPath(parsed.pathname)) {
           return withProxyAuth(proxyBase + parsed.pathname + parsed.search + parsed.hash);
         }
@@ -619,6 +632,65 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
 
       return value;
     };
+
+    const rewriteElementUrlAttribute = (element, attr) => {
+      try {
+        if (!element || typeof element.getAttribute !== 'function' || typeof element.setAttribute !== 'function') return;
+        const raw = element.getAttribute(attr);
+        if (typeof raw !== 'string' || !raw) return;
+        const next = proxiedUrl(raw);
+        if (next !== raw) element.setAttribute(attr, next);
+      } catch {}
+    };
+
+    const rewriteElementMediaUrls = (element) => {
+      if (!element || element.nodeType !== 1) return;
+      for (const attr of ['src', 'href', 'poster', 'action']) {
+        rewriteElementUrlAttribute(element, attr);
+      }
+      if (typeof element.querySelectorAll === 'function') {
+        element.querySelectorAll('[src], [href], [poster], [action]').forEach((child) => {
+          for (const attr of ['src', 'href', 'poster', 'action']) {
+            rewriteElementUrlAttribute(child, attr);
+          }
+        });
+      }
+    };
+
+    if (window.Element && window.Element.prototype && typeof window.Element.prototype.setAttribute === 'function') {
+      const nativeSetAttribute = window.Element.prototype.setAttribute;
+      window.Element.prototype.setAttribute = function(name, value) {
+        const attr = String(name || '').toLowerCase();
+        const nextValue = ['src', 'href', 'poster', 'action'].indexOf(attr) >= 0 && typeof value === 'string'
+          ? proxiedUrl(value)
+          : value;
+        return nativeSetAttribute.call(this, name, nextValue);
+      };
+    }
+
+    try {
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'attributes') {
+            rewriteElementMediaUrls(mutation.target);
+            continue;
+          }
+          mutation.addedNodes && mutation.addedNodes.forEach((node) => rewriteElementMediaUrls(node));
+        }
+      });
+      observer.observe(document.documentElement || document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['src', 'href', 'poster', 'action'],
+      });
+      const rewriteExisting = () => rewriteElementMediaUrls(document.documentElement);
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', rewriteExisting, { once: true });
+      } else {
+        rewriteExisting();
+      }
+    } catch {}
 
     const proxiedWebSocketUrl = (value) => {
       if (typeof value !== 'string') return value;

@@ -1068,7 +1068,7 @@ const appendProxyAuthToProxyUrl = (value, { previewToken = '', urlAuthToken = ''
 
 const normalizeLoopbackUrl = (rawUrl) => normalizeProxyTargetUrl(rawUrl, { allowExternal: false });
 
-export const rewritePreviewBody = ({ bodyText, proxyBasePath, targetOrigin, kind, previewToken = '', urlAuthToken = '' }) => {
+export const rewritePreviewBody = ({ bodyText, proxyBasePath, targetOrigin, kind, previewToken = '', urlAuthToken = '', resourcePath = '' }) => {
   if (typeof bodyText !== 'string' || bodyText.length === 0) {
     return bodyText;
   }
@@ -1088,9 +1088,32 @@ export const rewritePreviewBody = ({ bodyText, proxyBasePath, targetOrigin, kind
   };
   const rewriteResourceUrl = (value) => {
     if (typeof value !== 'string' || value.length === 0) return value;
+    const trimmed = value.trim();
+    if (
+      trimmed.startsWith('#')
+      || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+      || trimmed.startsWith('//')
+    ) {
+      try {
+        const parsed = new URL(value);
+        if (isSameTargetOrigin(parsed)) {
+          return appendProxyAuthToProxyUrl(`${prefix}${parsed.pathname}${parsed.search}${parsed.hash}`, { previewToken, urlAuthToken });
+        }
+      } catch {}
+      return value;
+    }
     if (value.startsWith('/') && !value.startsWith('//')) {
       if (value.startsWith('/api/preview/proxy/')) return appendProxyAuthToProxyUrl(value, { previewToken, urlAuthToken });
       return appendProxyAuthToProxyUrl(`${prefix}${value}`, { previewToken, urlAuthToken });
+    }
+    if (kind === 'css') {
+      try {
+        const basePath = resourcePath && resourcePath.startsWith('/') ? resourcePath : '/';
+        const parsed = new URL(value, `http://openchamber-preview.local${basePath}`);
+        return appendProxyAuthToProxyUrl(`${prefix}${parsed.pathname}${parsed.search}${parsed.hash}`, { previewToken, urlAuthToken });
+      } catch {
+        return value;
+      }
     }
     try {
       const parsed = new URL(value);
@@ -1500,6 +1523,7 @@ export const createPreviewProxyRuntime = ({
 
           const proxyBasePath = `/api/preview/proxy/${resolved.id}`;
           const urlAuthToken = resolved.parsed.searchParams.get(URL_AUTH_TOKEN_QUERY_PARAM) || '';
+          const upstreamResourcePath = stripProxyPrefix(resolved.parsed.pathname, resolved.id);
           if (typeof proxyRes.headers?.location === 'string') {
             proxyRes.headers.location = rewritePreviewRedirectLocation({
               location: proxyRes.headers.location,
@@ -1534,6 +1558,7 @@ export const createPreviewProxyRuntime = ({
               kind: 'javascript',
               previewToken: resolved.entry.token,
               urlAuthToken,
+              resourcePath: upstreamResourcePath,
             });
           }
 
@@ -1544,6 +1569,7 @@ export const createPreviewProxyRuntime = ({
             kind: isHtml ? 'html' : isCss ? 'css' : 'javascript',
             previewToken: resolved.entry.token,
             urlAuthToken,
+            resourcePath: upstreamResourcePath,
           });
           return isHtml ? injectPreviewBridge(rewrittenBody, resolved.entry.origin, bridgeNonce) : rewrittenBody;
         }),

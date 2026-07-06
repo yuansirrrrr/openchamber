@@ -20,6 +20,14 @@ const rewrite = (bodyText, kind) => rewritePreviewBody({
   targetOrigin: 'http://127.0.0.1:3000',
 });
 
+const rewriteWithResourcePath = (bodyText, kind, resourcePath) => rewritePreviewBody({
+  bodyText,
+  kind,
+  resourcePath,
+  proxyBasePath: '/api/preview/proxy/abc123',
+  targetOrigin: 'http://127.0.0.1:3000',
+});
+
 describe('preview Inertia header passthrough', () => {
   it('forwards Inertia request headers to the preview target', () => {
     const forwarded = new Map();
@@ -241,6 +249,17 @@ describe('preview body URL rewriting', () => {
     expect(output).toContain('@import "/api/preview/proxy/abc123/theme.css"');
     expect(output).toContain('url(/api/preview/proxy/abc123/hero.png)');
     expect(output).toContain('content: "/not-a-url"');
+  });
+
+  it('rewrites relative CSS urls against the upstream stylesheet path', () => {
+    const input = '.cursor { cursor: url("../images/cursors/link-small.cur"), pointer; }';
+
+    expect(rewriteWithResourcePath(input, 'css', '/style.css')).toContain(
+      'url("/api/preview/proxy/abc123/images/cursors/link-small.cur")',
+    );
+    expect(rewriteWithResourcePath(input, 'css', '/styles/app.css')).toContain(
+      'url("/api/preview/proxy/abc123/images/cursors/link-small.cur")',
+    );
   });
 
   it('rewrites only JavaScript static import specifiers in JavaScript responses', () => {

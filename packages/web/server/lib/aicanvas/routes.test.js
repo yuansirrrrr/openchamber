@@ -87,7 +87,16 @@ describe('resolveAiCanvasAllowedOrigins', () => {
         AIC_ALLOWED_ORIGINS: 'https://existing.example',
         AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com/runtime/',
       },
-    })).toBe('https://existing.example,https://canvas.kklay.com');
+    })).toBe('https://existing.example,https://canvas.kklay.com,null');
+  });
+
+  test('preserves an explicitly configured sandbox iframe null origin', () => {
+    expect(resolveAiCanvasAllowedOrigins({
+      env: {
+        AIC_ALLOWED_ORIGINS: 'https://existing.example,null',
+        AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com/runtime/',
+      },
+    })).toBe('https://existing.example,null,https://canvas.kklay.com');
   });
 });
 

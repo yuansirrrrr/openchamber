@@ -303,13 +303,15 @@ export const resolveAiCanvasAllowedOrigins = (processLike, body = {}) => {
   const existing = processLike.env?.AIC_ALLOWED_ORIGINS;
   if (typeof existing === 'string') {
     for (const item of existing.split(',')) {
-      const origin = normalizeOrigin(item);
+      const trimmed = item.trim();
+      const origin = trimmed.toLowerCase() === 'null' ? 'null' : normalizeOrigin(trimmed);
       if (origin) origins.add(origin);
     }
   }
 
   const publicOrigin = normalizeOrigin(body.publicUrl ?? processLike.env?.AICANVASPRO_PUBLIC_URL);
   if (publicOrigin) origins.add(publicOrigin);
+  origins.add('null');
   return [...origins].join(',');
 };
 

@@ -262,6 +262,15 @@ describe('preview body URL rewriting', () => {
     );
   });
 
+  it('repairs proxied CSS urls that lost the preview target id', () => {
+    const input = '.cursor { cursor: url("/api/preview/proxy/images/cursors/link-small.cur"), pointer; }';
+    const output = rewrite(input, 'css');
+
+    expect(output).toContain(
+      'url("/api/preview/proxy/abc123/images/cursors/link-small.cur")',
+    );
+  });
+
   it('rewrites only JavaScript static import specifiers in JavaScript responses', () => {
     const input = 'import "/entry.js"; import value from "/module.js"; const url = "/api/data"; fetch("/api/data");';
     const output = rewrite(input, 'javascript');

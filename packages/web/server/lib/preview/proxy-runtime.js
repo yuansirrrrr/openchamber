@@ -1,4 +1,3 @@
-const DEFAULT_TARGET_TTL_MS = 30 * 60 * 1000;
 const TOKEN_COOKIE_NAME = 'oc_preview_token';
 const TOKEN_QUERY_PARAM = 'oc_preview_token';
 const CLIENT_TOKEN_QUERY_PARAM = 'oc_client_token';
@@ -1146,6 +1145,18 @@ export const rewritePreviewBody = ({ bodyText, proxyBasePath, targetOrigin, kind
   }
 
   const prefix = proxyBasePath.endsWith('/') ? proxyBasePath.slice(0, -1) : proxyBasePath;
+  const proxyPathPrefix = '/api/preview/proxy/';
+  const normalizeExistingProxyPath = (value) => {
+    if (typeof value !== 'string' || !value.startsWith(proxyPathPrefix)) return value;
+    if (value.startsWith(`${prefix}/`) || value === prefix) return value;
+
+    const rest = value.slice(proxyPathPrefix.length);
+    const firstSlash = rest.indexOf('/');
+    const firstSegment = firstSlash >= 0 ? rest.slice(0, firstSlash) : rest;
+    if (/^[a-f0-9]{16,64}$/i.test(firstSegment)) return value;
+
+    return `${prefix}/${rest}`;
+  };
   const target = targetOrigin ? new URL(targetOrigin) : null;
   const isSameTargetOrigin = (url) => {
     if (!target) return false;
@@ -1175,7 +1186,7 @@ export const rewritePreviewBody = ({ bodyText, proxyBasePath, targetOrigin, kind
       return value;
     }
     if (value.startsWith('/') && !value.startsWith('//')) {
-      if (value.startsWith('/api/preview/proxy/')) return appendProxyAuthToProxyUrl(value, { previewToken, urlAuthToken });
+      if (value.startsWith(proxyPathPrefix)) return appendProxyAuthToProxyUrl(normalizeExistingProxyPath(value), { previewToken, urlAuthToken });
       return appendProxyAuthToProxyUrl(`${prefix}${value}`, { previewToken, urlAuthToken });
     }
     if (kind === 'css') {
@@ -1316,62 +1327,60 @@ export const createPreviewProxyRuntime = ({
   responseInterceptor,
 }) => {
   const targets = new Map();
-  let sweepTimer = null;
 
-  const now = () => Date.now();
-
-  const sweepExpired = () => {
-    const t = now();
-    for (const [id, entry] of targets.entries()) {
-      if (entry.expiresAt <= t) {
-        targets.delete(id);
-      }
-    }
-  };
-
-  const ensureSweeper = () => {
-    if (sweepTimer) {
-      return;
-    }
-    sweepTimer = setInterval(sweepExpired, 30_000);
-    // Don't keep the process alive.
-    sweepTimer.unref?.();
-  };
-
-  const createTarget = (origin, ttlMs) => {
+  const createTarget = (origin) => {
     const id = crypto.randomBytes(16).toString('hex');
     const token = crypto.randomBytes(16).toString('hex');
-    const createdAt = now();
-    const expiresAt = createdAt + (Number.isFinite(ttlMs) ? Math.max(15_000, Math.trunc(ttlMs)) : DEFAULT_TARGET_TTL_MS);
+    const createdAt = Date.now();
     targets.set(id, {
       id,
       origin,
       token,
       createdAt,
-      expiresAt,
+      expiresAt: null,
     });
-    return { id, token, expiresAt };
+    return { id, token, expiresAt: null };
   };
 
   const resolveTargetFromRequest = (req) => {
     const rawUrl = req?.originalUrl || req?.url || '';
-    const parsed = new URL(rawUrl, 'http://localhost');
+    let parsed = new URL(rawUrl, 'http://localhost');
     const pathname = parsed.pathname || '';
 
     const match = pathname.match(/^\/api\/preview\/proxy\/([a-f0-9]{16,64})(?:\/|$)/i);
-    const id = match?.[1] || '';
+    let id = match?.[1] || '';
+    let referrerParsed = null;
+    if (!id && pathname.startsWith('/api/preview/proxy/')) {
+      try {
+        const referrer = req?.headers?.referer || req?.headers?.referrer || '';
+        referrerParsed = new URL(String(referrer || ''), 'http://localhost');
+        const referrerMatch = referrerParsed.pathname.match(/^\/api\/preview\/proxy\/([a-f0-9]{16,64})(?:\/|$)/i);
+        const referrerId = referrerMatch?.[1] || '';
+        if (referrerId) {
+          const rest = pathname.slice('/api/preview/proxy'.length) || '/';
+          const normalized = new URL(parsed.toString());
+          normalized.pathname = `/api/preview/proxy/${referrerId}${rest}`;
+          parsed = normalized;
+          id = referrerId;
+        }
+      } catch {
+        referrerParsed = null;
+      }
+    }
     if (!id) {
       return { ok: false, status: 404, error: 'Preview target not found' };
     }
 
     const entry = targets.get(id);
-    if (!entry || entry.expiresAt <= now()) {
-      targets.delete(id);
-      return { ok: false, status: 404, error: 'Preview target expired' };
+    if (!entry) {
+      return { ok: false, status: 404, error: 'Preview target not found' };
     }
 
     const cookies = parseCookieHeader(req.headers?.cookie);
-    const token = parsed.searchParams.get(TOKEN_QUERY_PARAM) || cookies.get(TOKEN_COOKIE_NAME) || '';
+    const token = parsed.searchParams.get(TOKEN_QUERY_PARAM)
+      || cookies.get(TOKEN_COOKIE_NAME)
+      || referrerParsed?.searchParams?.get(TOKEN_QUERY_PARAM)
+      || '';
     if (!token || token !== entry.token) {
       return { ok: false, status: 403, error: 'Preview token missing' };
     }
@@ -1436,8 +1445,6 @@ export const createPreviewProxyRuntime = ({
     isRequestOriginAllowed,
     rejectWebSocketUpgrade,
   }) => {
-    ensureSweeper();
-
     const injectPreviewBridge = (bodyText, targetOrigin, bridgeNonce) => {
       if (typeof bodyText !== 'string' || bodyText.includes(PREVIEW_BRIDGE_SCRIPT_ID)) {
         return bodyText;
@@ -1493,7 +1500,6 @@ export const createPreviewProxyRuntime = ({
           return res.status(400).json({ error: 'url is required' });
         }
 
-        const ttlMs = typeof req.body?.ttlMs === 'number' ? req.body.ttlMs : DEFAULT_TARGET_TTL_MS;
         const allowExternal = req.body?.allowExternal === true;
         const normalized = allowExternal
           ? normalizeProxyTargetUrl(rawUrl, { allowExternal: true })
@@ -1502,14 +1508,13 @@ export const createPreviewProxyRuntime = ({
           return res.status(400).json({ error: normalized.error });
         }
 
-        const target = createTarget(normalized.origin, ttlMs);
+        const target = createTarget(normalized.origin);
         const cookiePath = `/api/preview/proxy/${target.id}`;
         const secure = Boolean(req.secure);
         res.setHeader('Set-Cookie', buildCookie({
           name: TOKEN_COOKIE_NAME,
           value: target.token,
           path: cookiePath,
-          maxAgeSeconds: Math.round((target.expiresAt - now()) / 1000),
           secure,
         }));
 
@@ -1558,10 +1563,9 @@ export const createPreviewProxyRuntime = ({
           return pathValue;
         }
 
-        const parsed = new URL(req.originalUrl || req.url || '', 'http://localhost');
         // Never forward our auth cookie token to the dev server.
-        const strippedPath = stripProxyPrefix(parsed.pathname, resolved.id);
-        const withoutReloadParam = removeRawQueryParam(parsed.search, 'ocPreview');
+        const strippedPath = stripProxyPrefix(resolved.parsed.pathname, resolved.id);
+        const withoutReloadParam = removeRawQueryParam(resolved.parsed.search, 'ocPreview');
         const withoutPreviewToken = removeRawQueryParam(withoutReloadParam, TOKEN_QUERY_PARAM);
         const withoutClientToken = removeRawQueryParam(withoutPreviewToken, CLIENT_TOKEN_QUERY_PARAM);
         const withoutUrlAuthToken = removeRawQueryParam(withoutClientToken, URL_AUTH_TOKEN_QUERY_PARAM);
@@ -1620,8 +1624,7 @@ export const createPreviewProxyRuntime = ({
           delete proxyRes.headers.etag;
           delete proxyRes.headers['last-modified'];
 
-          const parsed = new URL(req.originalUrl || req.url || '', 'http://localhost');
-          const upstreamPath = stripProxyPrefix(parsed.pathname, resolved.id);
+          const upstreamPath = stripProxyPrefix(resolved.parsed.pathname, resolved.id);
           if (isJavaScript && upstreamPath === '/@vite/client') {
             return rewritePreviewBody({
               bodyText: rewriteViteClientHmr(responseBuffer.toString('utf8'), proxyBasePath),

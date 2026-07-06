@@ -200,7 +200,7 @@ const TRANSPARENT_IMAGE_PLACEHOLDER = 'data:image/png;base64,iVBORw0KGgoAAAANSUh
 // the proxy id, so a stale persisted entry would 404 after a server restart.
 // Entries are evicted on registration error (refetched) or when the upstream
 // returns 403 (cookie expired) / 404 (target unknown) at iframe load time.
-export type CachedProxyTarget = { proxyBasePath: string; previewToken?: string; expiresAt: number };
+export type CachedProxyTarget = { proxyBasePath: string; previewToken?: string; expiresAt: number | null };
 export const previewProxyTargetCache = new Map<string, CachedProxyTarget>();
 const previewProxyTargetRequests = new Map<string, Promise<CachedProxyTarget | null>>();
 const PREVIEW_PROXY_CACHE_SAFETY_MS = 30_000;
@@ -208,7 +208,7 @@ const PREVIEW_PROXY_CACHE_SAFETY_MS = 30_000;
 export const getCachedProxyTarget = (url: string): CachedProxyTarget | null => {
   const entry = previewProxyTargetCache.get(url);
   if (!entry) return null;
-  if (entry.expiresAt - Date.now() <= PREVIEW_PROXY_CACHE_SAFETY_MS) {
+  if (typeof entry.expiresAt === 'number' && entry.expiresAt - Date.now() <= PREVIEW_PROXY_CACHE_SAFETY_MS) {
     previewProxyTargetCache.delete(url);
     return null;
   }
@@ -489,7 +489,7 @@ const getExternalResourceProxyUrl = async (url: URL): Promise<string> => {
 
       const body = await response.json() as { proxyBasePath?: unknown; expiresAt?: unknown };
       const proxyBasePath = typeof body.proxyBasePath === 'string' ? body.proxyBasePath : '';
-      const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : 0;
+      const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : null;
       if (!proxyBasePath) {
         previewProxyTargetCache.delete(targetKey);
         return null;

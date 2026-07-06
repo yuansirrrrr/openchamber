@@ -418,7 +418,7 @@ type PreviewPaneProps = {
 type PreviewProxyState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'ready'; proxyBasePath: string; previewToken?: string; expiresAt: number }
+  | { status: 'ready'; proxyBasePath: string; previewToken?: string; expiresAt: number | null }
   | { status: 'error'; message: string };
 
 const getPreviewProxyOrigin = (proxySrc: string): string => {
@@ -534,7 +534,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
         const body = await response.json() as { proxyBasePath?: unknown; previewToken?: unknown; expiresAt?: unknown };
         const proxyBasePath = typeof body.proxyBasePath === 'string' ? body.proxyBasePath : '';
         const previewToken = typeof body.previewToken === 'string' ? body.previewToken : '';
-        const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : 0;
+        const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : null;
         if (!proxyBasePath || !previewToken) {
           previewProxyTargetCache.delete(proxyCacheKey);
           if (!cancelled) {
@@ -1360,7 +1360,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         const body = await response.json() as { proxyBasePath?: unknown; previewToken?: unknown; expiresAt?: unknown };
         const proxyBasePath = typeof body.proxyBasePath === 'string' ? body.proxyBasePath : '';
         const previewToken = typeof body.previewToken === 'string' ? body.previewToken : '';
-        const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : 0;
+        const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : null;
         if (!proxyBasePath || !previewToken) {
           if (!cancelled) {
             setProxyState({ status: 'error', message: t('contextPanel.preview.proxyError') });

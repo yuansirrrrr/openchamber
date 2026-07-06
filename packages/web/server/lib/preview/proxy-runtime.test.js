@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyAiCanvasPreviewRequestHeaders,
   applyPreviewPassthroughRequestHeaders,
   applyPreviewPassthroughResponseHeaders,
   classifyPreviewNavigation,
   classifyPreviewResourceError,
+  isAiCanvasPreviewOrigin,
   normalizeProxyTargetUrl,
   rewritePreviewBody,
   rewritePreviewCspHeader,
@@ -56,6 +58,43 @@ describe('preview Inertia header passthrough', () => {
     expect(forwarded.get('x-inertia')).toBe('true');
     expect(forwarded.get('x-inertia-location')).toBe('http://127.0.0.1:8000/login');
     expect(forwarded.has('x-unrelated')).toBe(false);
+  });
+});
+
+describe('preview AI-CanvasPro request headers', () => {
+  it('recognizes configured Canvas public origins', () => {
+    expect(isAiCanvasPreviewOrigin('https://canvas.kklay.com/runtime/', {
+      AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com',
+    })).toBe(true);
+    expect(isAiCanvasPreviewOrigin('https://example.com', {
+      AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com',
+    })).toBe(false);
+  });
+
+  it('sends null Origin only for Canvas preview targets', () => {
+    const headers = new Map();
+    const proxyReq = {
+      setHeader: (name, value) => headers.set(name.toLowerCase(), value),
+    };
+
+    applyAiCanvasPreviewRequestHeaders({
+      ok: true,
+      entry: { origin: 'https://canvas.kklay.com' },
+    }, proxyReq, {
+      AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com',
+    });
+
+    expect(headers.get('origin')).toBe('null');
+
+    headers.clear();
+    applyAiCanvasPreviewRequestHeaders({
+      ok: true,
+      entry: { origin: 'https://example.com' },
+    }, proxyReq, {
+      AICANVASPRO_PUBLIC_URL: 'https://canvas.kklay.com',
+    });
+
+    expect(headers.has('origin')).toBe(false);
   });
 });
 

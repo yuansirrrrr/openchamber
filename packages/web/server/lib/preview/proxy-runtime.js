@@ -55,6 +55,37 @@ export const applyPreviewPassthroughResponseHeaders = (proxyRes, res) => {
   }
 };
 
+const normalizeOrigin = (value) => {
+  try {
+    return new URL(String(value || '')).origin;
+  } catch {
+    return '';
+  }
+};
+
+export const isAiCanvasPreviewOrigin = (origin, env = process.env) => {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return false;
+  const configuredOrigins = [
+    env?.AICANVASPRO_PUBLIC_URL,
+    env?.AICANVAS_PUBLIC_URL,
+    env?.AIC_PUBLIC_URL,
+  ].map(normalizeOrigin).filter(Boolean);
+  if (configuredOrigins.includes(normalized)) return true;
+
+  try {
+    const parsed = new URL(normalized);
+    return parsed.port === '8777';
+  } catch {
+    return false;
+  }
+};
+
+export const applyAiCanvasPreviewRequestHeaders = (resolved, proxyReq, env = process.env) => {
+  if (!resolved?.ok || !isAiCanvasPreviewOrigin(resolved.entry?.origin, env)) return;
+  proxyReq.setHeader('origin', 'null');
+};
+
 const previewResourceNoiseRuleSets = [
   {
     name: 'vite',
@@ -1443,7 +1474,9 @@ export const createPreviewProxyRuntime = ({
       },
       on: {
         proxyReq: (proxyReq, req) => {
+          const resolved = resolveTargetFromRequest(req);
           applyPreviewPassthroughRequestHeaders(req, proxyReq);
+          applyAiCanvasPreviewRequestHeaders(resolved, proxyReq);
           // Keep local dev servers from receiving OpenChamber credentials.
           proxyReq.removeHeader('cookie');
           proxyReq.removeHeader('authorization');

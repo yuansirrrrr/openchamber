@@ -220,6 +220,29 @@ function createChildStores(entries: Array<[string, StoreApi<DirectoryStore>]>) {
   } as unknown as import("./child-store").ChildStoreManager
 }
 
+beforeEach(async () => {
+  const { resetActionRefsForTests } = await import("./session-actions")
+  resetActionRefsForTests()
+})
+
+describe("fetchMessagesForSession prefetch", () => {
+  test("skips when SyncProvider action refs are not initialized", async () => {
+    replyCalls.length = 0
+
+    const { fetchMessagesForSession } = await import("./session-actions")
+
+    let thrown: unknown
+    try {
+      await fetchMessagesForSession("session-a", "/test/project")
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBe(undefined)
+    expect(replyCalls.filter((call) => call.method === "session.messages")).toHaveLength(0)
+  })
+})
+
 describe("shareSession live state", () => {
   beforeEach(() => {
     replyCalls.length = 0

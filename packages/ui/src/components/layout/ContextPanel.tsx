@@ -439,13 +439,18 @@ const stripPreviewTokenFromUrl = (value: string): string => {
   if (!value) return value;
   try {
     const parsed = new URL(value);
-    parsed.searchParams.delete('oc_preview_token');
-    parsed.searchParams.delete('oc_client_token');
-    parsed.searchParams.delete('oc_url_token');
+    stripPreviewAuthSearchParams(parsed.searchParams);
     return parsed.toString();
   } catch {
     return value;
   }
+};
+
+const stripPreviewAuthSearchParams = (searchParams: URLSearchParams): void => {
+  searchParams.delete('ocPreview');
+  searchParams.delete('oc_preview_token');
+  searchParams.delete('oc_client_token');
+  searchParams.delete('oc_url_token');
 };
 const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
   const { t } = useI18n();
@@ -593,6 +598,7 @@ const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
     ? (() => {
       const path = normalizedUrl.pathname || '/';
       const searchParams = new URLSearchParams(normalizedUrl.search);
+      stripPreviewAuthSearchParams(searchParams);
       searchParams.set('ocPreview', String(reloadNonce));
       searchParams.set('oc_preview_token', proxyState.previewToken || '');
       const search = searchParams.toString();
@@ -1415,6 +1421,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
       const parsed = new URL(currentUrl);
       const path = parsed.pathname || '/';
       const searchParams = new URLSearchParams(parsed.search);
+      stripPreviewAuthSearchParams(searchParams);
       searchParams.set('ocPreview', String(reloadNonce));
       searchParams.set('oc_preview_token', proxyState.previewToken || '');
       const search = searchParams.toString();

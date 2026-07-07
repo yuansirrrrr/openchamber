@@ -105,6 +105,14 @@ export function setOptimisticRefs(
   _optimisticRemove = remove
 }
 
+export function resetActionRefsForTests(): void {
+  _sdk = null
+  _childStores = null
+  _getDirectory = () => ""
+  _optimisticAdd = null
+  _optimisticRemove = null
+}
+
 function sdk() {
   if (!_sdk) throw new Error("SDK not initialized — is SyncProvider mounted?")
   return _sdk
@@ -1125,6 +1133,7 @@ const getFetchPageSize = () => {
 export async function fetchMessagesForSession(sessionID: string, directory?: string | null): Promise<void> {
   const resolvedDir = directory ?? dir()
   if (!resolvedDir) return
+  if (!_sdk || !_childStores) return
 
   const s = sdk()
   const store = directory

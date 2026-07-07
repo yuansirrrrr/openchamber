@@ -117,6 +117,29 @@ describe('createRuntimeUrlResolver', () => {
       );
     } finally {
       setRuntimeBearerToken(null);
+      setRuntimeUrlAuthToken(null, null);
+    }
+  });
+
+  test('replaces existing URL auth query values instead of appending duplicates', () => {
+    setRuntimeBearerToken('oc_client_secret');
+    setRuntimeUrlAuthToken('oc_url_fresh', Date.now() + 60_000);
+    try {
+      const urls = createRuntimeUrlResolver({ apiBaseUrl: 'https://api.example' });
+
+      const authenticatedAssetUrl = new URL(
+        urls.authenticatedAsset('/api/preview/proxy/abc/app.css?oc_url_token=old&x=1&oc_url_token=older#top'),
+      );
+      expect(authenticatedAssetUrl.searchParams.getAll('oc_url_token')).toEqual(['oc_url_fresh']);
+      expect(authenticatedAssetUrl.searchParams.get('x')).toBe('1');
+      expect(authenticatedAssetUrl.hash).toBe('#top');
+
+      const sseUrl = new URL(urls.sse('https://api.example/api/global/event?oc_url_token=old&lastEventId=evt-1'));
+      expect(sseUrl.searchParams.getAll('oc_url_token')).toEqual(['oc_url_fresh']);
+      expect(sseUrl.searchParams.get('lastEventId')).toBe('evt-1');
+    } finally {
+      setRuntimeBearerToken(null);
+      setRuntimeUrlAuthToken(null, null);
     }
   });
 

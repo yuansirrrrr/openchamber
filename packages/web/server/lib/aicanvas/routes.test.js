@@ -41,6 +41,82 @@ describe('resolveAiCanvasRuntime', () => {
       pluginPath: path.join(pluginsDir, 'ai-canvaspro.js'),
     });
   });
+
+  test('uses OPENCODE_HOME when OpenChamber runs from a different home directory', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-aicanvas-home-'));
+    const opencodeHome = path.join(root, 'root-home', '.config', 'opencode');
+    const pluginsDir = path.join(opencodeHome, 'plugins');
+    const pluginDir = path.join(pluginsDir, 'AI-CanvasPro-0.5.0');
+    const runtimeRoot = path.join(pluginDir, 'AI-CanvasPro-0.5.0', 'runtime');
+
+    fs.mkdirSync(runtimeRoot, { recursive: true });
+    fs.writeFileSync(path.join(runtimeRoot, 'server.py'), '', 'utf8');
+    fs.writeFileSync(path.join(pluginDir, 'ai-canvaspro.js'), 'export default {}', 'utf8');
+
+    const result = resolveAiCanvasRuntime(fs, path, {
+      homedir: () => path.join(root, 'home', 'openchamber'),
+    }, {
+      env: {
+        OPENCODE_HOME: opencodeHome,
+      },
+    });
+
+    expect(result).toEqual({
+      runtimeRoot,
+      source: 'opencode-plugins',
+      pluginPath: path.join(pluginDir, 'ai-canvaspro.js'),
+    });
+  });
+
+  test('uses an explicit plugin path when configured', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-aicanvas-plugin-'));
+    const pluginDir = path.join(root, 'AI-CanvasPro-0.5.0');
+    const runtimeRoot = path.join(pluginDir, 'AI-CanvasPro-0.5.0', 'runtime');
+    const pluginPath = path.join(pluginDir, 'ai-canvaspro.js');
+
+    fs.mkdirSync(runtimeRoot, { recursive: true });
+    fs.writeFileSync(path.join(runtimeRoot, 'server.py'), '', 'utf8');
+    fs.writeFileSync(pluginPath, 'export default {}', 'utf8');
+
+    const result = resolveAiCanvasRuntime(fs, path, {
+      homedir: () => path.join(root, 'unrelated-home'),
+    }, {
+      env: {
+        AICANVASPRO_PLUGIN_PATH: pluginPath,
+      },
+    });
+
+    expect(result).toEqual({
+      runtimeRoot,
+      source: 'explicit-plugin',
+      pluginPath,
+    });
+  });
+
+  test('uses an explicit plugin directory when configured', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-aicanvas-plugin-dir-'));
+    const pluginDir = path.join(root, 'AI-CanvasPro-0.5.0');
+    const runtimeRoot = path.join(pluginDir, 'AI-CanvasPro-0.5.0', 'runtime');
+    const pluginPath = path.join(pluginDir, 'ai-canvaspro.js');
+
+    fs.mkdirSync(runtimeRoot, { recursive: true });
+    fs.writeFileSync(path.join(runtimeRoot, 'server.py'), '', 'utf8');
+    fs.writeFileSync(pluginPath, 'export default {}', 'utf8');
+
+    const result = resolveAiCanvasRuntime(fs, path, {
+      homedir: () => path.join(root, 'unrelated-home'),
+    }, {
+      env: {
+        AICANVASPRO_PLUGIN_DIR: pluginDir,
+      },
+    });
+
+    expect(result).toEqual({
+      runtimeRoot,
+      source: 'explicit-plugin',
+      pluginPath,
+    });
+  });
 });
 
 describe('isInactiveBridgeHealth', () => {

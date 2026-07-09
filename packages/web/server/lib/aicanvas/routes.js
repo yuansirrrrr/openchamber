@@ -30,11 +30,18 @@ const getHomeDir = (os, processLike) => {
   return processLike.env.USERPROFILE || processLike.env.HOME || '';
 };
 
+const getOpenCodeHomeDir = (path, os, processLike) => {
+  const explicit = processLike.env.OPENCODE_HOME || processLike.env.OPENCODE_CONFIG_HOME;
+  if (explicit) return path.resolve(explicit);
+  const home = getHomeDir(os, processLike);
+  return home ? path.join(home, '.config', 'opencode') : '';
+};
+
 const getOpenCodeConfigPath = (path, os, processLike) => {
   const explicit = processLike.env.OPENCODE_CONFIG || processLike.env.OPENCODE_CONFIG_PATH;
   if (explicit) return path.resolve(explicit);
-  const home = getHomeDir(os, processLike);
-  return home ? path.join(home, '.config', 'opencode', 'opencode.json') : '';
+  const opencodeHome = getOpenCodeHomeDir(path, os, processLike);
+  return opencodeHome ? path.join(opencodeHome, 'opencode.json') : '';
 };
 
 const readJsonFile = (fs, filePath) => {
@@ -78,8 +85,26 @@ const resolveConfiguredPluginPath = (fs, path, os, processLike) => {
 };
 
 const getOpenCodePluginsDir = (path, os, processLike) => {
-  const home = getHomeDir(os, processLike);
-  return home ? path.join(home, '.config', 'opencode', 'plugins') : '';
+  const explicit = processLike.env.AICANVASPRO_PLUGINS_DIR || processLike.env.OPENCODE_PLUGINS_DIR;
+  if (explicit) return path.resolve(explicit);
+  const opencodeHome = getOpenCodeHomeDir(path, os, processLike);
+  return opencodeHome ? path.join(opencodeHome, 'plugins') : '';
+};
+
+const resolveExplicitPluginPath = (path, processLike, body = {}) => {
+  const explicit = body.pluginPath
+    || processLike.env.AICANVASPRO_PLUGIN_PATH
+    || processLike.env.AICANVASPRO_PLUGIN_FILE;
+  if (typeof explicit === 'string' && explicit.trim()) {
+    const resolved = path.resolve(explicit.trim());
+    return path.basename(resolved).toLowerCase() === 'ai-canvaspro.js'
+      ? resolved
+      : path.join(resolved, 'ai-canvaspro.js');
+  }
+
+  const explicitDir = body.pluginDir || processLike.env.AICANVASPRO_PLUGIN_DIR;
+  if (typeof explicitDir !== 'string' || !explicitDir.trim()) return null;
+  return path.join(path.resolve(explicitDir.trim()), 'ai-canvaspro.js');
 };
 
 const findInstalledPluginPath = (fs, path, os, processLike) => {
@@ -147,6 +172,15 @@ export const resolveAiCanvasRuntime = (fs, path, os, processLike, body = {}) => 
       runtimeRoot: explicitRoot,
       source: 'explicit',
       pluginPath: null,
+    };
+  }
+
+  const explicitPluginPath = resolveExplicitPluginPath(path, processLike, body);
+  if (explicitPluginPath) {
+    return {
+      runtimeRoot: findRuntimeRootNearPlugin(fs, path, explicitPluginPath),
+      source: 'explicit-plugin',
+      pluginPath: explicitPluginPath,
     };
   }
 
